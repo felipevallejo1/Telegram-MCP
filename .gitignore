@@ -1,7 +1,10 @@
 # Local environment and generated files
 .env.local
 .env*.local
+.codex/config.toml
+.codex/notion-target.json
 .codex/runs/
+.codex/logs/
 node_modules/
 .next/
 coverage/

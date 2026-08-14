@@ -74,6 +74,14 @@ describe("loadBotConfig", () => {
     expect(config.token).toMatch(/^123456:/);
   });
 
+  it("acepta espacios seguros alrededor del signo igual", async () => {
+    await expect(loadBotConfig(async () => "TELEGRAM_BOT_TOKEN = \"123456:abcdefghijklmnopqrstuvwxyz_123456\"\nTELEGRAM_ALLOWED_CHAT_ID = \"-10042\"\nREQUEST_TIMEOUT_MS = \"12000\"\n")).resolves.toEqual({ token: "123456:abcdefghijklmnopqrstuvwxyz_123456", allowedChatId: "-10042", requestTimeoutMs: 12000 });
+  });
+
+  it("ignora variables ajenas al bot sin interpretar su contenido", async () => {
+    await expect(loadBotConfig(async () => "TELEGRAM_BOT_TOKEN=123456:abcdefghijklmnopqrstuvwxyz_123456\nTELEGRAM_ALLOWED_CHAT_ID=-10042\nCOMANDO=npm.cmd run bot --texto libre\n")).resolves.toMatchObject({ allowedChatId: "-10042", requestTimeoutMs: 10000 });
+  });
+
   it("rechaza configuración local incompleta o inválida", async () => {
     await expect(loadBotConfig(async () => "TELEGRAM_BOT_TOKEN=invalid\nTELEGRAM_ALLOWED_CHAT_ID=chat\n")).rejects.toThrow("Local Telegram configuration is missing or invalid.");
     await expect(loadBotConfig(async () => "TELEGRAM_BOT_TOKEN=123456:abcdefghijklmnopqrstuvwxyz_123456\nTELEGRAM_ALLOWED_CHAT_ID=42\nREQUEST_TIMEOUT_MS=10\n")).rejects.toThrow("Local Telegram configuration is missing or invalid.");

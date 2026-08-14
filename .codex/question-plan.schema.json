@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["taskId", "metric"],
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "metric": {
+      "type": "string",
+      "enum": [
+        "PATIENT_TOTAL",
+        "PATIENTS_WITH_APPOINTMENTS_TODAY",
+        "APPOINTMENTS_TODAY",
+        "SPECIALIST_TOTAL",
+        "AVAILABLE_SLOTS_TODAY",
+        "FUTURE_APPOINTMENTS",
+        "UNSUPPORTED"
+      ]
+    }
+  }
+}

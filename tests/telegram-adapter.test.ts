@@ -33,12 +33,14 @@ describe("TelegramAdapter", () => {
   });
 
   it("envía mensajes, teclado inline y respuestas de callback", async () => {
-    const { fetcher, requests } = transport([{ ok: true, result: true }, { ok: true, result: true }]);
+    const { fetcher, requests } = transport([{ ok: true, result: true }, { ok: true, result: true }, { ok: true, result: true }]);
     const adapter = new TelegramAdapter("safe-token", fetcher);
     await adapter.send("42", "texto", [[{ text: "Ejecutar", data: "run:1" }]]);
     await adapter.answerCallback("callback-1", "recibido");
+    await adapter.setCommands([{ command: "pregunta", description: "Consultar métricas de MediControl" }]);
     expect(requests[0].body).toEqual({ chat_id: "42", text: "texto", reply_markup: { inline_keyboard: [[{ text: "Ejecutar", callback_data: "run:1" }]] } });
     expect(requests[1].body).toEqual({ callback_query_id: "callback-1", text: "recibido" });
+    expect(requests[2].body).toEqual({ commands: [{ command: "pregunta", description: "Consultar métricas de MediControl" }] });
   });
 
   it("rechaza errores HTTP y API con un mensaje sanitizado", async () => {

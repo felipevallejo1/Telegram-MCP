@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SafeBot, hashChatId, type Executor, type ExecutorResult, type Messenger, type Run, type RunPatch, type RunStatus, type RunStore } from "../bot/core";
+import { SafeBot, hashChatId, type DocumentationResult, type Documenter, type Executor, type ExecutorResult, type Messenger, type QuestionAnswerer, type QuestionResult, type Run, type RunPatch, type RunStatus, type RunStore } from "../bot/core";
 
 class MemoryStore implements RunStore {
   readonly runs = new Map<string, Run>();
@@ -29,6 +29,13 @@ class MemoryStore implements RunStore {
   async findByStatuses(statuses: RunStatus[]): Promise<Run[]> {
     return [...this.runs.values()].filter((run) => statuses.includes(run.status)).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
+  async updateNotion(id: string, notionStatus: "PENDING" | "SYNCED" | "FAILED", notionUrl?: string): Promise<boolean> {
+    const run = this.runs.get(id);
+    if (!run) return false;
+    run.notionStatus = notionStatus;
+    run.notionUrl = notionUrl;
+    return true;
+  }
 }
 
 class MemoryMessenger implements Messenger {
@@ -44,14 +51,15 @@ class MemoryMessenger implements Messenger {
   }
 }
 
-type PendingExecution = { input: { taskId: string; prompt: string; signal: AbortSignal }; resolve: (result: ExecutorResult) => void; reject: (reason: Error) => void };
+type ExecutionInput = Parameters<Executor["run"]>[0];
+type PendingExecution = { input: ExecutionInput; resolve: (result: ExecutorResult) => void; reject: (reason: Error) => void };
 class ControlledExecutor implements Executor {
-  readonly calls: { taskId: string; prompt: string; signal: AbortSignal }[] = [];
+  readonly calls: ExecutionInput[] = [];
   readonly pending = new Map<string, PendingExecution>();
   active = 0;
   maxActive = 0;
 
-  run(input: { taskId: string; prompt: string; signal: AbortSignal }): Promise<ExecutorResult> {
+  run(input: ExecutionInput): Promise<ExecutorResult> {
     this.calls.push(input);
     this.active += 1;
     this.maxActive = Math.max(this.maxActive, this.active);
@@ -83,6 +91,34 @@ class ControlledExecutor implements Executor {
   }
 }
 
+class ControlledDocumenter implements Documenter {
+  readonly calls: Parameters<Documenter["document"]>[0][] = [];
+  private pending?: { resolve: (result: DocumentationResult) => void; reject: (error: Error) => void };
+
+  document(input: Parameters<Documenter["document"]>[0]): Promise<DocumentationResult> {
+    this.calls.push(input);
+    return new Promise((resolve, reject) => { this.pending = { resolve, reject }; });
+  }
+
+  finish(taskId: string, notionUrl = "https://www.notion.so/medicontrol-demo"): void {
+    this.pending?.resolve({ taskId, status: "COMPLETED", notionUrl, summary: "documentado" });
+    this.pending = undefined;
+  }
+}
+
+class ControlledQuestionAnswerer implements QuestionAnswerer {
+  readonly calls: Parameters<QuestionAnswerer["answer"]>[0][] = [];
+  private pending?: { resolve: (result: QuestionResult) => void };
+  answer(input: Parameters<QuestionAnswerer["answer"]>[0]): Promise<QuestionResult> {
+    this.calls.push(input);
+    return new Promise((resolve) => { this.pending = { resolve }; });
+  }
+  finish(taskId: string, answer = "Hay 3 pacientes registrados."): void {
+    this.pending?.resolve({ taskId, status: "COMPLETED", answer });
+    this.pending = undefined;
+  }
+}
+
 const flush = async (): Promise<void> => { for (let index = 0; index < 30; index += 1) await Promise.resolve(); };
 const deferred = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; }); return { promise, resolve }; };
 const waitForCall = async (executor: ControlledExecutor, count: number): Promise<void> => {
@@ -93,12 +129,12 @@ const waitForCall = async (executor: ControlledExecutor, count: number): Promise
   throw new Error(`Expected ${count} executor calls, got ${executor.calls.length}`);
 };
 
-const setup = (options?: { now?: () => Date; ttlMs?: number; maxMessage?: number; onFatal?: () => void }) => {
+const setup = (options?: { now?: () => Date; ttlMs?: number; maxMessage?: number; onFatal?: () => void; progressDelaysMs?: readonly number[]; documenter?: ControlledDocumenter; questionAnswerer?: ControlledQuestionAnswerer }) => {
   const store = new MemoryStore();
   const messenger = new MemoryMessenger();
   const executor = new ControlledExecutor();
-  const bot = new SafeBot("chat-a", store, messenger, executor, options?.now, options?.ttlMs, undefined, options?.maxMessage, undefined, options?.onFatal);
-  return { bot, store, messenger, executor };
+  const bot = new SafeBot("chat-a", store, messenger, executor, options?.now, options?.ttlMs, undefined, options?.maxMessage, undefined, options?.onFatal, options?.progressDelaysMs, options?.documenter, options?.questionAnswerer);
+  return { bot, store, messenger, executor, documenter: options?.documenter, questionAnswerer: options?.questionAnswerer };
 };
 const prompt = (bot: SafeBot, updateId: string, chatId = "chat-a", text = "orden segura") => bot.handle({ updateId, chatId, text: `/prompt ${text}` });
 const confirm = (bot: SafeBot, updateId: string, chatId = "chat-a") => bot.handle({ updateId: `callback-${updateId}`, chatId, callbackId: `callback-${updateId}`, callbackData: `run:tg-${updateId}` });
@@ -119,32 +155,138 @@ describe("SafeBot", () => {
     expect(executor.calls).toHaveLength(0);
   });
 
-  it("notifica el progreso fijo al iniciar", async () => {
-    const { bot, messenger, executor } = setup();
+  it("notifica el inicio y el progreso periódico mientras Codex continúa trabajando", async () => {
+    vi.useFakeTimers();
+    const { bot, messenger, executor } = setup({ progressDelaysMs: [1_000, 2_000] });
     await prompt(bot, "one"); await confirm(bot, "one"); await waitForCall(executor, 1);
-    expect(messenger.sent.at(-1)).toMatchObject({ chatId: "chat-a", text: "Ejecución local iniciada." });
+    expect(messenger.sent.at(-1)).toMatchObject({ chatId: "chat-a", text: "🔍 Analizando el proyecto…" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(messenger.sent.at(-1)?.text).toContain("Codex sigue trabajando");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(messenger.sent.at(-1)?.text).toContain("La ejecución continúa");
     executor.finish("tg-one"); await bot.waitForIdle();
+    const sentAfterFinish = messenger.sent.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(messenger.sent).toHaveLength(sentAfterFinish);
+    vi.useRealTimers();
   });
 
-  it("envía una salida determinista con conteos y sin textos del executor", async () => {
+  it("muestra el resumen, las verificaciones y cada advertencia segura", async () => {
     const { bot, store, messenger, executor } = setup();
     await prompt(bot, "one"); await confirm(bot, "one"); await waitForCall(executor, 1);
     executor.finishResult("tg-one", {
       taskId: "tg-one",
       status: "COMPLETED",
-      summary: "SENTINEL_SUMMARY_SECRET",
-      filesChanged: ["C:\\Users\\Private\\SENTINEL_FILE", "SENTINEL_FILE_TWO"],
-      testsRun: ["SENTINEL_TEST_ONE", "SENTINEL_TEST_TWO", "SENTINEL_TEST_THREE"],
+      summary: "Cambio visual aplicado.",
+      filesChanged: ["src/app/globals.css"],
+      testsRun: ["npm.cmd run test", "npm.cmd run lint"],
       testsPassed: true,
-      warnings: ["SENTINEL_WARNING"],
+      warnings: ["El repositorio ya tenía cambios locales."],
       notionLogRequested: false,
     });
     await bot.waitForIdle();
     const message = messenger.sent.at(-1)?.text ?? "";
-    expect(message).toBe("Estado: completado. Archivos modificados: 2. Verificaciones: 3; tests: aprobados. Advertencias: 1.");
-    expect(message).not.toContain("SENTINEL");
+    expect(message).toContain("Estado: completado con advertencias.");
+    expect(message).toContain("Resumen: Cambio visual aplicado.");
+    expect(message).toContain("- El repositorio ya tenía cambios locales.");
+    expect(message).toContain("- src/app/globals.css");
+    expect(message).toContain("- npm.cmd run test");
     expect(store.runs.get("tg-one")?.verificationSummary).toBe(message);
-    expect(store.runs.get("tg-one")?.verificationSummary).not.toContain("SENTINEL");
+    expect(store.runs.get("tg-one")?.status).toBe("COMPLETED");
+  });
+
+  it("no marca completada una tarea cuyas verificaciones fallaron", async () => {
+    const { bot, store, messenger, executor } = setup();
+    await prompt(bot, "failed-tests"); await confirm(bot, "failed-tests"); await waitForCall(executor, 1);
+    executor.finishResult("tg-failed-tests", { taskId: "tg-failed-tests", status: "COMPLETED", summary: "Cambio aplicado.", filesChanged: ["src/app/page.tsx"], testsRun: ["npm.cmd run test"], testsPassed: false, warnings: ["Una verificación no pasó."], notionLogRequested: false });
+    await bot.waitForIdle();
+    expect(store.runs.get("tg-failed-tests")?.status).toBe("FAILED");
+    expect(messenger.sent.at(-1)?.text).toContain("cambio aplicado, pero verificación fallida");
+    expect(messenger.sent.at(-1)?.text).toContain("Una verificación no pasó");
+  });
+
+  it("permite elegir modelo y razonamiento y conserva la selección para la tarea", async () => {
+    const { bot, messenger, executor } = setup();
+    await bot.handle({ updateId: "models", chatId: "chat-a", text: "/modelo" });
+    expect(messenger.sent.at(-1)?.text).toContain("Modelo: Terra · razonamiento: medium");
+    await bot.handle({ updateId: "model-luna", chatId: "chat-a", callbackId: "model-luna", callbackData: "model:luna" });
+    await bot.handle({ updateId: "effort-low", chatId: "chat-a", callbackId: "effort-low", callbackData: "effort:low" });
+    await prompt(bot, "selected");
+    expect(messenger.sent.at(-1)?.text).toContain("Modelo: Luna · razonamiento: low");
+    await confirm(bot, "selected"); await waitForCall(executor, 1);
+    expect(executor.calls[0].selection).toEqual({ model: "gpt-5.6-luna", reasoning: "low" });
+    executor.finish("tg-selected"); await bot.waitForIdle();
+  });
+
+  it("responde /pregunta mediante el lector agregado sin modificar el proyecto", async () => {
+    const questionAnswerer = new ControlledQuestionAnswerer();
+    const { bot, messenger } = setup({ questionAnswerer, now: () => new Date("2026-08-13T12:00:00.000Z") });
+    await bot.handle({ updateId: "question", chatId: "chat-a", text: "/pregunta cuántos pacientes hay registrados" });
+    expect(questionAnswerer.calls).toHaveLength(1);
+    expect(questionAnswerer.calls[0]).toMatchObject({ taskId: "q-question", question: "cuántos pacientes hay registrados", selection: { model: "gpt-5.6-terra", reasoning: "medium" } });
+    expect(messenger.sent.at(-1)?.text).toContain("solo lectura");
+    questionAnswerer.finish("q-question"); await bot.waitForIdle();
+    expect(messenger.sent.at(-1)?.text).toBe("Resultado: Hay 3 pacientes registrados.");
+  });
+
+  it("documenta solo después de /documentar y de una confirmación explícita", async () => {
+    const documenter = new ControlledDocumenter();
+    const { bot, store, messenger, executor } = setup({ documenter });
+    await prompt(bot, "one"); await confirm(bot, "one"); await waitForCall(executor, 1);
+    executor.finish("tg-one"); await bot.waitForIdle();
+    expect(documenter.calls).toHaveLength(0);
+
+    await bot.handle({ updateId: "doc-preview", chatId: "chat-a", text: "/documentar" });
+    expect(documenter.calls).toHaveLength(0);
+    expect(messenger.sent.at(-1)?.text).toContain("Esta acción no es automática");
+    expect(messenger.sent.at(-1)?.buttons?.[0]?.[0]).toEqual({ text: "Documentar en Notion", data: "document:tg-one" });
+
+    await bot.handle({ updateId: "doc-confirm", chatId: "chat-a", callbackId: "doc-confirm", callbackData: "document:tg-one" });
+    expect(documenter.calls).toHaveLength(1);
+    expect(messenger.sent.at(-1)?.text).toContain("pedido y confirmación del usuario");
+    documenter.finish("tg-one"); await bot.waitForIdle();
+    expect(store.runs.get("tg-one")).toMatchObject({ notionStatus: "SYNCED", notionUrl: "https://www.notion.so/medicontrol-demo" });
+    expect(messenger.sent.at(-1)?.text).toContain("Documentación creada en Notion");
+  });
+
+  it("acepta un pedido explícito en lenguaje natural o un comando con nombre del bot", async () => {
+    const documenter = new ControlledDocumenter();
+    const { bot, store, messenger } = setup({ documenter });
+    await store.create({ id: "done", updateId: "done", chatHash: hashChatId("chat-a"), prompt: "cambio", status: "COMPLETED", createdAt: new Date(), notionStatus: "PENDING" });
+    await bot.handle({ updateId: "natural", chatId: "chat-a", text: "Documentalo en Notion" });
+    expect(messenger.sent.at(-1)?.buttons?.[0]?.[0]).toEqual({ text: "Documentar en Notion", data: "document:done" });
+    expect(messenger.sent.at(-1)?.text).toContain("Cambio");
+    expect(messenger.sent.at(-1)?.text).not.toContain("done");
+    await bot.handle({ updateId: "mention", chatId: "chat-a", text: "/documentar@MediControlRemoteBot" });
+    expect(messenger.sent.at(-1)?.text).toContain("Documentar en Notion");
+    expect(documenter.calls).toHaveLength(0);
+  });
+
+  it("muestra una descripción breve del cambio en vez del identificador técnico", async () => {
+    const documenter = new ControlledDocumenter();
+    const { bot, store, messenger } = setup({ documenter });
+    await store.create({ id: "tg-12345678901234567890", updateId: "long", chatHash: hashChatId("chat-a"), prompt: "cambiar el color secundario de toda la página a rojo", status: "COMPLETED", createdAt: new Date(), notionStatus: "PENDING" });
+    await bot.handle({ updateId: "document", chatId: "chat-a", text: "/documentar" });
+    const preview = messenger.sent.at(-1)?.text ?? "";
+    expect(preview).toContain("Cambiar el color secundario de toda la página a rojo");
+    expect(preview).not.toContain("tg-12345678901234567890");
+  });
+
+  it("responde en lugar de ignorar silenciosamente un texto desconocido", async () => {
+    const { bot, messenger } = setup();
+    await bot.handle({ updateId: "unknown", chatId: "chat-a", text: "hola" });
+    expect(messenger.sent.at(-1)?.text).toContain("No reconocí");
+  });
+
+  it("no ofrece Notion sin un cambio completado ni vuelve a duplicar uno sincronizado", async () => {
+    const documenter = new ControlledDocumenter();
+    const { bot, store, messenger } = setup({ documenter });
+    await bot.handle({ updateId: "empty", chatId: "chat-a", text: "/documentar" });
+    expect(messenger.sent.at(-1)?.text).toContain("No hay un cambio completado");
+    await store.create({ id: "done", updateId: "done", chatHash: hashChatId("chat-a"), prompt: "cambio", status: "COMPLETED", createdAt: new Date(), notionStatus: "SYNCED", notionUrl: "https://www.notion.so/already" });
+    await bot.handle({ updateId: "again", chatId: "chat-a", text: "/documentar" });
+    expect(messenger.sent.at(-1)?.text).toContain("ya está documentado");
+    expect(documenter.calls).toHaveLength(0);
   });
 
   it("ignora el replay de confirmación", async () => {

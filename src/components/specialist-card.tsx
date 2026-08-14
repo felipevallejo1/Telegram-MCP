@@ -6,7 +6,7 @@ export function SpecialistCard({ specialist }: { specialist: { id: string; first
   return <article className="card specialist-card">
     <div className="card-top">
       <div className="avatar" aria-hidden="true">{specialist.firstName[0]}{specialist.lastName[0]}</div>
-      <span className="verified-badge">✓ Verificado demo</span>
+      <span className="verified-badge">✓ Verificado</span>
     </div>
     <div className="card-body">
       <p className="specialty-tag">{specialist.specialty.name}</p>

@@ -46,6 +46,10 @@ export class TelegramAdapter implements Messenger {
     await this.request("answerCallbackQuery", { callback_query_id: id, ...(text ? { text } : {}) });
   }
 
+  async setCommands(commands: { command: string; description: string }[]): Promise<void> {
+    await this.request("setMyCommands", { commands });
+  }
+
   private url(method: string): string {
     return `https://api.telegram.org/bot${this.token}/${method}`;
   }

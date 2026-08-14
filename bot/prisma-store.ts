@@ -1,6 +1,6 @@
 import { AgentRunStatus, Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../src/lib/prisma";
-import type { Run, RunPatch, RunStatus, RunStore } from "./core";
+import type { NotionStatus, Run, RunPatch, RunStatus, RunStore } from "./core";
 
 type AgentRunClient = Pick<PrismaClient, "agentRun">;
 
@@ -15,6 +15,8 @@ const mapRun = (item: {
   startedAt: Date | null;
   finishedAt: Date | null;
   verificationSummary: string | null;
+  notionUrl: string | null;
+  notionStatus: NotionStatus;
 }): Run => ({
   id: item.id,
   updateId: item.telegramUpdateId,
@@ -25,6 +27,8 @@ const mapRun = (item: {
   ...(item.startedAt ? { startedAt: item.startedAt } : {}),
   ...(item.finishedAt ? { finishedAt: item.finishedAt } : {}),
   ...(item.verificationSummary ? { verificationSummary: item.verificationSummary } : {}),
+  ...(item.notionUrl ? { notionUrl: item.notionUrl } : {}),
+  notionStatus: item.notionStatus,
 });
 
 const patchData = (patch?: Partial<RunPatch>): Prisma.AgentRunUpdateManyMutationInput => ({
@@ -80,6 +84,14 @@ export const createPrismaRunStore = (client: AgentRunClient): RunStore => ({
   async findByStatuses(statuses) {
     const items = await client.agentRun.findMany({ where: { status: { in: statuses.map(status) } }, orderBy: { createdAt: "asc" } });
     return items.map(mapRun);
+  },
+
+  async updateNotion(id, notionStatus, notionUrl) {
+    const result = await client.agentRun.updateMany({
+      where: { id },
+      data: { notionStatus, notionUrl: notionUrl ?? null },
+    });
+    return result.count === 1;
   },
 });
 

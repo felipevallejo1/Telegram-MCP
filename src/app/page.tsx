@@ -34,9 +34,8 @@ export default async function Home({ searchParams }: { searchParams: Search }) {
       <section className="hero">
         <div className="hero-copy">
           <p className="eyebrow"><span className="status-dot" /> Agenda médica inteligente</p>
-          <h1>Tu próximo turno, <span>más cerca.</span></h1>
+          <h1>Encontrá tu especialista ideal</h1>
           <p className="hero-lead">Explorá especialistas, compará modalidades y encontrá el horario ideal en pocos pasos.</p>
-          <p className="demo-notice"><span aria-hidden="true">ⓘ</span> Proyecto demostrativo. Todos los profesionales, pacientes y turnos son ficticios.</p>
         </div>
         <div className="hero-panel" aria-label="Características de la plataforma">
           <div className="pulse-orbit"><span>+</span></div>
@@ -53,7 +52,7 @@ export default async function Home({ searchParams }: { searchParams: Search }) {
       <section className="search-shell" aria-labelledby="search-title">
         <div className="section-heading">
           <div><p className="eyebrow">Buscador</p><h2 id="search-title">Encontrá tu especialista</h2></div>
-          <span className="secure-label">Datos 100% ficticios</span>
+          <span className="secure-label">Reserva simple y segura</span>
         </div>
         <form className="filters" action="/">
           <label className="search-field">Buscar por nombre o especialidad<input name="q" defaultValue={query.q} placeholder="Ej. cardiología" /></label>

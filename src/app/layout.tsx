@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MediControl — Demo",
-  description: "Proyecto demostrativo con datos ficticios."
+  title: "MediControl",
+  description: "Encontrá especialistas y reservá turnos médicos."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

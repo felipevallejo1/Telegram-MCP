@@ -4,11 +4,13 @@ import { fileURLToPath } from "node:url";
 import { SafeBot, type BotEvent } from "./core";
 import { FixedGitDiffProvider } from "./diff";
 import { CodexExecutor, MEDICONTROL_PROJECT_ROOT } from "./executor";
+import { CodexNotionDocumenter, loadNotionTarget } from "./notion";
 import { prismaRunStore } from "./prisma-store";
+import { CodexQuestionPlanner, DatabaseQuestionAnswerer, PrismaQuestionDataSource } from "./question";
 import { TelegramAdapter, type TelegramUpdate } from "./telegram";
 import { prisma } from "../src/lib/prisma";
 
-export type BotConfig = { token: string; allowedChatId: string; requestTimeoutMs: number };
+export type BotConfig = { token: string; allowedChatId: string; requestTimeoutMs: number; notionParentPage?: string };
 export type PollingTransport = Pick<TelegramAdapter, "updates" | "ack">;
 export type UpdateHandler = (update: BotEvent) => Promise<void>;
 export type Delay = (milliseconds: number, signal?: AbortSignal) => Promise<void>;
@@ -16,6 +18,7 @@ export type Delay = (milliseconds: number, signal?: AbortSignal) => Promise<void
 const tokenPattern = /^\d{6,}:[A-Za-z0-9_-]{20,}$/;
 const chatIdPattern = /^-?\d+$/;
 const localEnvironmentPath = resolve(MEDICONTROL_PROJECT_ROOT, ".env.local");
+const botEnvironmentKeys = new Set(["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_CHAT_ID", "NOTION_PARENT_PAGE", "REQUEST_TIMEOUT_MS"]);
 
 const delay: Delay = (milliseconds, signal) => new Promise((resolveDelay, reject) => {
   if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
@@ -28,8 +31,9 @@ const parseLocalEnvironment = (contents: string): Record<string, string> => {
   for (const rawLine of contents.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
-    const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
+    const match = /^([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/.exec(line);
     if (!match) throw new Error("Invalid local environment file.");
+    if (!botEnvironmentKeys.has(match[1])) continue;
     const rawValue = match[2].trim();
     if ((rawValue.startsWith('"') && rawValue.endsWith('"')) || (rawValue.startsWith("'") && rawValue.endsWith("'"))) values[match[1]] = rawValue.slice(1, -1);
     else if (!/[\s#]/.test(rawValue)) values[match[1]] = rawValue;
@@ -46,10 +50,11 @@ export const loadBotConfig = async (readLocalFile: (path: string, encoding: "utf
   }
   const token = process.env.TELEGRAM_BOT_TOKEN ?? localValues.TELEGRAM_BOT_TOKEN ?? "";
   const allowedChatId = process.env.TELEGRAM_ALLOWED_CHAT_ID ?? localValues.TELEGRAM_ALLOWED_CHAT_ID ?? "";
+  const notionParentPage = process.env.NOTION_PARENT_PAGE ?? localValues.NOTION_PARENT_PAGE ?? "";
   const timeoutText = process.env.REQUEST_TIMEOUT_MS ?? localValues.REQUEST_TIMEOUT_MS ?? "10000";
   const requestTimeoutMs = Number(timeoutText);
   if (!tokenPattern.test(token) || !chatIdPattern.test(allowedChatId) || !Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1000 || requestTimeoutMs > 60000) throw new Error("Local Telegram configuration is missing or invalid.");
-  return { token, allowedChatId, requestTimeoutMs };
+  return { token, allowedChatId, requestTimeoutMs, ...(notionParentPage ? { notionParentPage } : {}) };
 };
 
 export class TelegramPoller {
@@ -90,7 +95,19 @@ export const startLocalBot = async (): Promise<void> => {
   const config = await loadBotConfig();
   const controller = new AbortController();
   const telegram = new TelegramAdapter(config.token, fetch, 20, controller.signal, config.requestTimeoutMs);
-  const bot = new SafeBot(config.allowedChatId, prismaRunStore, telegram, new CodexExecutor(), undefined, undefined, undefined, undefined, new FixedGitDiffProvider(), () => controller.abort());
+  await telegram.setCommands([
+    { command: "status", description: "Ver estado, cola y modelo" },
+    { command: "modelo", description: "Elegir modelo y razonamiento" },
+    { command: "prompt", description: "Solicitar un cambio en el proyecto" },
+    { command: "pregunta", description: "Consultar métricas de MediControl" },
+    { command: "diff", description: "Ver cambios locales" },
+    { command: "documentar", description: "Documentar en Notion con confirmación" },
+    { command: "cancel", description: "Cancelar la operación activa" },
+    { command: "help", description: "Mostrar ayuda" },
+  ]).catch(() => console.warn("No se pudo actualizar el menú de comandos de Telegram; el bot continuará funcionando."));
+  const documenter = new CodexNotionDocumenter(await loadNotionTarget(config.notionParentPage));
+  const questionAnswerer = new DatabaseQuestionAnswerer(new CodexQuestionPlanner(), new PrismaQuestionDataSource(prisma));
+  const bot = new SafeBot(config.allowedChatId, prismaRunStore, telegram, new CodexExecutor(), undefined, undefined, undefined, undefined, new FixedGitDiffProvider(), () => controller.abort(), undefined, documenter, questionAnswerer);
   const shutdown = () => controller.abort();
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);

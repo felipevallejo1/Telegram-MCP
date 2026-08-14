@@ -12,7 +12,7 @@ const safeText = (value: FormDataEntryValue | null) => typeof value === "string"
 export async function loginDemoAction(formData: FormData) {
   const patientId = safeText(formData.get("patientId"));
   const patient = await prisma.patient.findFirst({ where: { id: patientId, email: { endsWith: "@example.test" } } });
-  if (!patient) redirect("/login?error=Paciente%20demo%20no%20válido.");
+  if (!patient) redirect("/login?error=Paciente%20no%20válido.");
   const store = await cookies();
   store.set(DEMO_SESSION_COOKIE, patient.id, { httpOnly: true, sameSite: "lax", path: "/", secure: false, maxAge: 60 * 60 * 8 });
   redirect("/");
@@ -27,7 +27,7 @@ export async function reserveDemoAction(formData: FormData) {
   if (!specialistId || !slotId || formData.get("confirmed") !== "on") redirect(`/reservar?specialistId=${encodeURIComponent(specialistId)}&slotId=${encodeURIComponent(slotId)}&error=Confirmá%20la%20reserva.`);
   let appointment;
   try { appointment = await reserveAppointment({ patientId: patient.id, specialistId, slotId }); }
-  catch (error) { const message = error instanceof ReservationConflictError ? "El horario ya fue reservado. Elegí otro disponible." : "No fue posible reservar el turno demo."; redirect(`/reservar?specialistId=${encodeURIComponent(specialistId)}&slotId=${encodeURIComponent(slotId)}&error=${encodeURIComponent(message)}`); }
+  catch (error) { const message = error instanceof ReservationConflictError ? "El horario ya fue reservado. Elegí otro disponible." : "No fue posible reservar el turno."; redirect(`/reservar?specialistId=${encodeURIComponent(specialistId)}&slotId=${encodeURIComponent(slotId)}&error=${encodeURIComponent(message)}`); }
   redirect(`/reserva-confirmada?id=${encodeURIComponent(appointment.id)}`);
 }
 
@@ -37,6 +37,6 @@ export async function cancelDemoAction(formData: FormData) {
   const appointmentId = safeText(formData.get("appointmentId"));
   if (!appointmentId || formData.get("confirmed") !== "on") redirect("/mis-turnos?error=Confirmá%20la%20cancelación.");
   try { await cancelAppointment({ appointmentId, patientId: patient.id }); }
-  catch (error) { const message = error instanceof AppointmentOwnershipError ? "No podés cancelar ese turno." : "No fue posible cancelar el turno demo."; redirect(`/mis-turnos?error=${encodeURIComponent(message)}`); }
-  redirect("/mis-turnos?success=Turno%20demo%20cancelado.%20El%20horario%20volvió%20a%20estar%20disponible.");
+  catch (error) { const message = error instanceof AppointmentOwnershipError ? "No podés cancelar ese turno." : "No fue posible cancelar el turno."; redirect(`/mis-turnos?error=${encodeURIComponent(message)}`); }
+  redirect("/mis-turnos?success=Turno%20cancelado.%20El%20horario%20volvió%20a%20estar%20disponible.");
 }

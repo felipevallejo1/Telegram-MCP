@@ -6,8 +6,8 @@ hospedado. Cada update se confirma solo despues de procesarse; errores transitor
 usan reintentos limitados con backoff y Ctrl+C cierra el polling ordenadamente.
 
 Antes de esa primera prueba real, el operador crea `.env.local` de forma local con
-`TELEGRAM_BOT_TOKEN` y `TELEGRAM_ALLOWED_CHAT_ID`. Ambos valores son obligatorios,
-se validan sin mostrarse y nunca se solicitan, crean ni guardan mediante chat.
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_ID` y `NOTION_PARENT_PAGE`. Los valores
+se leen sin mostrarse y nunca se solicitan, crean ni guardan mediante chat.
 
 Una solicitud confirmada usa solamente `codex.exe exec` con argumentos separados,
 sin shell, directorio fijo de MediControl, sandbox `workspace-write`, JSONL y un
@@ -16,11 +16,16 @@ rutas. El resultado estructurado temporal se guarda solamente en `.codex/runs/` 
 elimina tras exito, fallo, timeout o cancelacion. Timeout, cancelacion y terminacion
 del arbol de procesos emplean mecanismos fijos de Windows. `/diff` ejecuta solamente
 `git.exe status --short --untracked-files=all` y `git.exe diff --no-ext-diff --stat -- .`
-con argumentos fijos. Las notificaciones muestran estados y conteos allowlisted,
-nunca prompts, rutas, secretos ni salida cruda.
+con argumentos fijos. Las notificaciones muestran resumen, archivos relativos,
+verificaciones y advertencias validadas, pero nunca secretos ni salida cruda. Una
+tarea con verificaciones fallidas queda `FAILED` aunque haya aplicado archivos.
 
-Esta fase no integra Notion. No inicies el comando hasta completar la configuracion
-local y querer probar Telegram de verdad.
+`/modelo` selecciona Luna, Terra o Sol y el nivel de razonamiento para las tareas
+siguientes. `/pregunta` clasifica la consulta con Codex, pero ejecuta solamente una
+metrica agregada predefinida y de solo lectura sobre la base ficticia; el texto de
+Telegram nunca se convierte en SQL. `/documentar` requiere ademas una confirmacion
+explicita y usa el MCP oficial de Notion contra la pagina fija del proyecto. Un
+`/prompt` completado nunca inicia documentacion automaticamente.
 
 Tras un reinicio, una solicitud `RUNNING` queda fallida y una `CONFIRMED` queda
 cancelada de forma conservadora; reenviá y confirmá nuevamente la solicitud para no
