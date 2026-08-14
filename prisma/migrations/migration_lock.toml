@@ -1,0 +1,2 @@
+# Prisma migration provider lock. Do not change after migrations exist.
+provider = "sqlite"

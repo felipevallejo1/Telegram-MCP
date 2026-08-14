@@ -1,0 +1,3 @@
+export class ReservationConflictError extends Error { readonly code = "SLOT_UNAVAILABLE"; constructor() { super("The requested fictional slot is no longer available."); this.name = "ReservationConflictError"; } }
+export class AppointmentNotFoundError extends Error { readonly code = "APPOINTMENT_NOT_FOUND"; constructor() { super("The fictional appointment was not found."); this.name = "AppointmentNotFoundError"; } }
+export class AppointmentOwnershipError extends Error { readonly code = "APPOINTMENT_OWNERSHIP_MISMATCH"; constructor() { super("The fictional appointment does not belong to this patient."); this.name = "AppointmentOwnershipError"; } }

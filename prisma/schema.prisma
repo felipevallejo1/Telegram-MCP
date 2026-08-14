@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Modality {
+  IN_PERSON
+  VIRTUAL
+  BOTH
+}
+
+enum SlotStatus {
+  AVAILABLE
+  BOOKED
+}
+
+enum AppointmentStatus {
+  BOOKED
+  CANCELLED
+}
+
+enum AgentRunStatus {
+  PENDING
+  CONFIRMED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum NotionSyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+model Patient {
+  id           String        @id @default(cuid())
+  firstName    String
+  lastName     String
+  email        String        @unique
+  phone        String
+  birthDate    DateTime
+  createdAt    DateTime      @default(now())
+  appointments Appointment[]
+}
+
+model Specialty {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  specialists Specialist[]
+}
+
+model Specialist {
+  id           String             @id @default(cuid())
+  firstName    String
+  lastName     String
+  specialtyId  String
+  bio          String
+  licenseLabel String
+  city         String
+  modality     Modality
+  imagePath    String
+  active       Boolean            @default(true)
+  specialty    Specialty          @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  slots        AvailabilitySlot[]
+  appointments Appointment[]
+
+  @@index([specialtyId])
+  @@index([city])
+}
+
+model AvailabilitySlot {
+  id           String        @id @default(cuid())
+  specialistId String
+  startsAt     DateTime
+  endsAt       DateTime
+  status       SlotStatus    @default(AVAILABLE)
+  specialist   Specialist    @relation(fields: [specialistId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+
+  @@unique([specialistId, startsAt])
+  @@index([specialistId, status, startsAt])
+}
+
+model Appointment {
+  id          String            @id @default(cuid())
+  patientId   String
+  specialistId String
+  slotId      String
+  status      AppointmentStatus @default(BOOKED)
+  createdAt   DateTime          @default(now())
+  cancelledAt DateTime?
+  patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  specialist  Specialist        @relation(fields: [specialistId], references: [id], onDelete: Restrict)
+  slot        AvailabilitySlot  @relation(fields: [slotId], references: [id], onDelete: Restrict)
+
+  @@index([patientId, createdAt])
+  @@index([specialistId, createdAt])
+  @@index([slotId])
+}
+
+model AgentRun {
+  id                    String         @id @default(cuid())
+  telegramUpdateId      String         @unique
+  requestedByChatIdHash String
+  promptSummary         String
+  status                AgentRunStatus @default(PENDING)
+  startedAt             DateTime?
+  finishedAt            DateTime?
+  codexSessionId        String?
+  verificationSummary   String?
+  notionUrl             String?
+  notionStatus          NotionSyncStatus @default(PENDING)
+  createdAt             DateTime @default(now())
+}

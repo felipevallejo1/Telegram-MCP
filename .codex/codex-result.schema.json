@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["taskId", "status", "summary", "filesChanged", "testsRun", "testsPassed", "warnings", "notionLogRequested"],
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "status": { "type": "string", "enum": ["COMPLETED", "FAILED"] },
+    "summary": { "type": "string", "maxLength": 2000 },
+    "filesChanged": { "type": "array", "maxItems": 100, "items": { "type": "string", "maxLength": 300 } },
+    "testsRun": { "type": "array", "maxItems": 100, "items": { "type": "string", "maxLength": 300 } },
+    "testsPassed": { "type": "boolean" },
+    "warnings": { "type": "array", "maxItems": 100, "items": { "type": "string", "maxLength": 500 } },
+    "notionLogRequested": { "type": "boolean", "const": false }
+  }
+}

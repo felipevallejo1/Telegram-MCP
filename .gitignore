@@ -1,0 +1,19 @@
+# Local environment and generated files
+.env.local
+.env*.local
+.codex/runs/
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo
+*.log
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-wal
+prisma/*.db-shm
+
+# OS/editor artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
